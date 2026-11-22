@@ -193,7 +193,7 @@ pub async fn run(setup: Setup) -> Result<()> {
     let _guard = TerminalGuard;
 
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
-    terminal.clear()?;
+    clear_screen(&mut terminal)?;
     let mut app = App::new(setup);
     app.refresh_models(false);
     app.run(&mut terminal).await
@@ -247,7 +247,21 @@ fn resume(terminal: &mut Tui) -> Result<()> {
         crossterm::cursor::Hide
     )?;
     terminal::enable_raw_mode()?;
-    terminal.clear()?;
+    clear_screen(terminal)?;
+    Ok(())
+}
+
+/// Clear the alternate screen without asking the terminal where the cursor is:
+/// `Terminal::clear` queries the cursor position (`CSI 6n`), which some embedded
+/// terminals (e.g. the browser demo) never answer, so Yoke would refuse to start.
+fn clear_screen(terminal: &mut Tui) -> Result<()> {
+    execute!(
+        io::stdout(),
+        crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
+        crossterm::cursor::MoveTo(0, 0)
+    )?;
+    let size = terminal.size()?;
+    terminal.resize(ratatui::layout::Rect::new(0, 0, size.width, size.height))?;
     Ok(())
 }
 
