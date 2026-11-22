@@ -37,7 +37,7 @@ browser (ghostty-web) ⇄ WebSocket ⇄ demo/bridge ⇄ PTY ⇄ /yoke
 | `YOKE_DEMO_BIN` | `/yoke` | yoke binary (or a fake for local tests) |
 | `YOKE_DEMO_SEED` | `/workspace-template`, else `../workspace` | the demo project, copied per session |
 | `YOKE_DEMO_PROVIDER` | `groq` | provider id passed to yoke |
-| `YOKE_DEMO_MODEL` | `llama-3.3-70b-versatile` | model passed to yoke |
+| `YOKE_DEMO_MODEL` | `qwen/qwen3.8-27b` | model passed to yoke |
 | `GROQ_API_KEY` | — | free demo tokens; if empty only BYO-key works |
 | `YOKE_DEMO_MAX_SESSIONS` | `6` | concurrent PTYs |
 | `YOKE_DEMO_HOURLY_PER_IP` | `3` | provided-token sessions per IP per hour |

@@ -36,7 +36,7 @@ func loadConfig() config {
 		Bin:         env("YOKE_DEMO_BIN", "/yoke"),
 		SeedDir:     findSeedDir(),
 		Provider:    env("YOKE_DEMO_PROVIDER", "groq"),
-		Model:       env("YOKE_DEMO_MODEL", "llama-3.3-70b-versatile"),
+		Model:       env("YOKE_DEMO_MODEL", "qwen/qwen3.8-27b"),
 		ProvidedKey: os.Getenv("GROQ_API_KEY"),
 		Dev:         os.Getenv("YOKE_DEV"),
 		MaxSessions: envInt("YOKE_DEMO_MAX_SESSIONS", 6),

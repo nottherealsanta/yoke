@@ -218,7 +218,7 @@ we want the agent to be easy to trust.</pre>
         <pre class="code"><code id="embed-code"><span class="kw">use</span> yoke::{loop::run, providers, tools};
 
 <span class="cm">// A consumer supplies the provider, the tools and a sink for events.</span>
-<span class="kw">let</span> provider = providers::make(<span class="str">"groq"</span>, <span class="str">"llama-3.3-70b-versatile"</span>)?;
+<span class="kw">let</span> provider = providers::make(<span class="str">"groq"</span>, <span class="str">"qwen/qwen3.8-27b"</span>)?;
 <span class="kw">let</span> mut registry = tools::Registry::default();
 registry.add(MyTool); <span class="cm">// name, schema, run()</span>
 

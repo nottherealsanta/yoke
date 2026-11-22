@@ -23,7 +23,7 @@ services:
     cpus: 1.0
     environment:
       GROQ_API_KEY: ${GROQ_API_KEY:?set GROQ_API_KEY in /srv/apps/yoke/.env}
-      YOKE_DEMO_MODEL: ${YOKE_DEMO_MODEL:-llama-3.3-70b-versatile}
+      YOKE_DEMO_MODEL: ${YOKE_DEMO_MODEL:-qwen/qwen3.8-27b}
       YOKE_DEMO_MAX_SESSIONS: ${YOKE_DEMO_MAX_SESSIONS:-6}
       YOKE_DEMO_HOURLY_PER_IP: ${YOKE_DEMO_HOURLY_PER_IP:-3}
       YOKE_DEMO_DAILY_TOTAL: ${YOKE_DEMO_DAILY_TOTAL:-150}

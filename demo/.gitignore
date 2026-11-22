@@ -2,3 +2,4 @@
 bridge/web/dist/*
 !bridge/web/dist/.keep
 web/node_modules/
+bridge/bridge

@@ -217,7 +217,7 @@ pub fn fallback(provider: &str) -> Vec<Model> {
             "gpt-5.4",
             "gpt-5.3-codex",
         ],
-        "groq" => vec![providers::default_model("groq"), "llama-3.3-70b-versatile"],
+        "groq" => vec![providers::default_model("groq"), "qwen/qwen3.8-27b"],
         "compat" => Vec::new(),
         "mock" => vec![providers::default_model(provider)],
         _ => Vec::new(),
