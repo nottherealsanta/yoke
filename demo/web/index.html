@@ -100,10 +100,10 @@
           </div>
           <div class="term-screen" id="term-screen">
             <div class="fallback" id="fallback" aria-label="Example yoke session">
-              <div class="fbar"><span class="on">1 Overview</span><span>2 Tools</span><span>3 Raw</span><span class="fmodel">groq · llama · 6.1k / 128k</span></div>
-              <pre class="ftext"><span class="dim">╭─ context ─────────────────────────────────────────────╮</span>
-<span class="dim">│</span> system prompt  <span class="dim">~1,240 tok</span>   memory  <span class="dim">—</span>   tools  <span class="dim">~610 tok</span> <span class="dim">│</span>
-<span class="dim">╰───────────────────────────────────────────────────────╯</span>
+              <div class="fbar"><span class="on">1 Overview</span><span>2 Tools</span><span>3 Raw</span><span class="fmodel">groq · qwen3.8-27b · 6.1k / 128k</span></div>
+              <pre class="ftext"><span class="dim">╭─ context ──────────────────────────╮</span>
+<span class="dim">│</span> system <span class="dim">~1,240 tok</span> · tools <span class="dim">~610 tok</span> <span class="dim">│</span>
+<span class="dim">╰────────────────────────────────────╯</span>
 
 <span class="you">you</span>  read notes.txt and fix the typos
 <span class="agent">yoke</span>  I'll read it first.
@@ -118,7 +118,21 @@
           </div>
         </div>
 
-        <div class="chips" aria-label="Sample prompts">
+        <div class="keybar" role="group" aria-label="Terminal keys">
+          <button type="button" class="key" data-key="esc" aria-label="Escape">Esc</button>
+          <button type="button" class="key" data-key="tab" aria-label="Tab">Tab</button>
+          <button type="button" class="key" data-key="up" aria-label="Arrow up">↑</button>
+          <button type="button" class="key" data-key="down" aria-label="Arrow down">↓</button>
+          <button type="button" class="key" data-key="left" aria-label="Arrow left">←</button>
+          <button type="button" class="key" data-key="right" aria-label="Arrow right">→</button>
+          <button type="button" class="key" data-key="enter" aria-label="Enter">Enter</button>
+          <button type="button" class="key key-wide" data-key="ctrlc" aria-label="Control-C">Ctrl-C</button>
+          <button type="button" class="key" data-key="mode1" aria-label="Mode 1, Overview">1</button>
+          <button type="button" class="key" data-key="mode2" aria-label="Mode 2, Tools">2</button>
+          <button type="button" class="key" data-key="mode3" aria-label="Mode 3, Raw">3</button>
+        </div>
+
+        <div class="chips" role="group" aria-label="Sample prompts">
           <span class="chips-label">Try a prompt</span>
           <button type="button" class="chip" data-prompt="read notes.txt and fix the typos">read notes.txt and fix the typos</button>
           <button type="button" class="chip" data-prompt="find the bug in src/summarize.py">find the bug in src/summarize.py</button>
@@ -214,26 +228,40 @@ we want the agent to be easy to trust.</pre>
 
       <div class="code-card">
         <div class="code-head"><span>embedding the loop</span><button type="button" class="copy" id="copy-embed" aria-label="Copy the Rust snippet">copy</button></div>
-        <!-- EMBED-SNIPPET: align with the real library API from examples/minimal.rs when it lands. -->
-        <pre class="code"><code id="embed-code"><span class="kw">use</span> yoke::{loop::run, providers, tools};
+        <pre class="code"><code id="embed-code"><span class="kw">use</span> async_trait::async_trait;
+<span class="kw">use</span> serde_json::{json, Value};
+<span class="kw">use</span> yoke::{agent::{self, CancelToken}, providers, tokio,
+           tools::{Registry, Sink, Tool, ToolResult},
+           types::{Message, Part, Role}};
 
-<span class="cm">// A consumer supplies the provider, the tools and a sink for events.</span>
-<span class="kw">let</span> provider = providers::make(<span class="str">"groq"</span>, <span class="str">"qwen/qwen3.8-27b"</span>)?;
-<span class="kw">let</span> mut registry = tools::Registry::default();
-registry.add(MyTool); <span class="cm">// name, schema, run()</span>
+<span class="kw">struct</span> Clock;
 
-run(Request::new(system_prompt, memory, conversation), provider, registry, |event| {
-    <span class="cm">// StreamEvent::Text, ToolStart, ToolOutput, ToolEnd…</span>
-    app.apply(event);
-}).<span class="kw">await</span>?;</code></pre>
-        <p class="code-note">The current API is in the repo; this snippet follows <code>examples/minimal.rs</code> as the library split lands.</p>
+<span class="attr">#[async_trait]</span>
+<span class="kw">impl</span> Tool <span class="kw">for</span> Clock {
+    <span class="kw">fn</span> name(&amp;self) -&gt; &amp;str { <span class="str">"clock"</span> }
+    <span class="kw">fn</span> schema(&amp;self) -&gt; Value { json!({<span class="str">"name"</span>: <span class="str">"clock"</span>, <span class="str">"parameters"</span>: {<span class="str">"type"</span>: <span class="str">"object"</span>}}) }
+    <span class="kw">async fn</span> run(&amp;self, _args: Value, _out: Sink) -&gt; ToolResult { ToolResult::ok(<span class="str">"12:00"</span>) }
+}
+
+<span class="kw">let</span> model = providers::default_model(<span class="str">"groq"</span>);
+<span class="kw">let</span> home = yoke::memory::home(None).expect(<span class="str">"home"</span>);
+<span class="kw">let</span> provider = providers::make(<span class="str">"groq"</span>, model, None, &amp;home, |k| std::env::var(k).ok())?;
+<span class="kw">let</span> <span class="kw">mut</span> tools = Registry::new();
+tools.register(Box::new(Clock));
+<span class="kw">let</span> options = agent::Options::new(model, <span class="str">"You are a small agent."</span>);
+<span class="kw">let</span> (tx, <span class="kw">mut</span> rx) = agent::event_channel();
+tokio::spawn(<span class="kw">async move</span> { <span class="kw">while let</span> Some(e) = rx.recv().<span class="kw">await</span> { println!(<span class="str">"{e:?}"</span>); } });
+<span class="kw">let</span> <span class="kw">mut</span> messages = vec![Message { role: Role::User,
+    parts: vec![Part::Text { text: <span class="str">"hi"</span>.into() }] }];
+agent::run(provider.as_ref(), &amp;tools, &amp;options, &amp;mut messages, &amp;CancelToken::new(), &amp;tx).<span class="kw">await</span>?;</code></pre>
+        <p class="code-note">The same API, trimmed for the page: the full program is <a href="https://github.com/nottherealsanta/yoke/blob/main/examples/minimal.rs"><code>examples/minimal.rs</code></a>.</p>
       </div>
     </div>
 
     <div class="install-row">
       <div>
         <h3>Install</h3>
-        <p class="fine">Rust 1.80+ and a terminal. Then <code>yoke login groq</code>, or set <code>GROQ_API_KEY</code>.</p>
+        <p class="fine">Recent stable Rust and a terminal. Then <code>yoke login groq</code>, or set <code>GROQ_API_KEY</code>.</p>
       </div>
       <div class="install-box">
         <code id="install-cmd">cargo install --git https://github.com/nottherealsanta/yoke</code>
@@ -245,6 +273,9 @@ run(Request::new(system_prompt, memory, conversation), provider, registry, |even
       <h3 id="providers-title">Providers</h3>
       <ul class="providers">
         <li><span class="prov-name">codex</span><span>ChatGPT sign-in</span></li>
+        <li><span class="prov-name">grok</span><span>SuperGrok sign-in</span></li>
+        <li><span class="prov-name">claude</span><span>Claude Code sign-in</span></li>
+        <li><span class="prov-name">copilot</span><span>GitHub device code</span></li>
         <li><span class="prov-name">opencode</span><span>API key</span></li>
         <li><span class="prov-name">openai</span><span>API key</span></li>
         <li><span class="prov-name">groq</span><span>API key · used by this demo</span></li>
@@ -261,7 +292,7 @@ run(Request::new(system_prompt, memory, conversation), provider, registry, |even
         <p>Locally, use any provider you like with your own key. Nothing leaves your machine except the request to that provider.</p>
       </div>
       <div class="keys-points">
-        <div><span class="key-mark">01</span><p><strong>BYO key always works.</strong> <code>yoke login groq</code> (or <code>--provider openai</code>, <code>codex</code>, and so on) keeps the key in your own credential store.</p></div>
+        <div><span class="key-mark">01</span><p><strong>BYO key always works.</strong> <code>yoke login groq</code>, <code>openai</code>, <code>opencode</code> or <code>compat</code> stores a key locally; <code>codex</code> uses its browser sign-in.</p></div>
         <div><span class="key-mark">02</span><p><strong>The hosted demo is Groq only.</strong> It runs one model with only read/write/edit enabled, so we can keep it small, cheap and safe.</p></div>
         <div><span class="key-mark">03</span><p><strong>We provide limited free demo tokens.</strong> Rate-limited per visitor and per day; bring your own key if you hit the cap. No account, no sign-up, no tracking.</p></div>
       </div>

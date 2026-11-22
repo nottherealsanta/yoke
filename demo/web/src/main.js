@@ -27,8 +27,23 @@ let connecting = false;
 let pendingPrompt = "";
 let endsAt = 0;
 let ticker = null;
+let charRatio = 0.6;
+let fitTimer = null;
 
 const DEFAULT_SECONDS = 15 * 60;
+const KEY_SEQ = {
+  esc: "\x1b",
+  tab: "\t",
+  up: "\x1b[A",
+  down: "\x1b[B",
+  left: "\x1b[D",
+  right: "\x1b[C",
+  enter: "\r",
+  ctrlc: "\x03",
+  mode1: "1",
+  mode2: "2",
+  mode3: "3",
+};
 
 /* ---------- small UI helpers ---------- */
 
@@ -89,6 +104,61 @@ function resetSessionUI(label = "Start a new session") {
   timerEl.classList.remove("low");
 }
 
+function isNarrow() {
+  return window.matchMedia("(pointer: coarse)").matches || window.innerWidth <= 700;
+}
+
+function measureChar() {
+  const ctx = document.createElement("canvas").getContext("2d");
+  ctx.font = '13.5px "Monaspace Argon", monospace';
+  const width = ctx.measureText("M").width;
+  if (width > 0) charRatio = width / 13.5;
+}
+
+/* Size the grid to the frame: keep at least 60 columns on phones, 14-30 rows. */
+function fitTerminal() {
+  const wterm = termEl.classList.contains("wterm") ? termEl : termEl.querySelector(".wterm");
+  const style = wterm ? getComputedStyle(wterm) : null;
+  const padX = style ? parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) : 24;
+  const padY = style ? parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) : 20;
+  if (!screen.clientWidth) return;
+
+  const narrow = isNarrow();
+  const avail = Math.max(180, screen.clientWidth - padX);
+  const base = 13.5;
+  const minCols = 60;
+  const landscapePhone = narrow && window.innerWidth > window.innerHeight;
+  let font = landscapePhone ? 11 : base;
+  if (avail / (base * charRatio) < minCols) font = avail / minCols / charRatio;
+  font = Math.max(7.5, Math.min(base, Math.floor(font * 4) / 4));
+
+  const rowHeight = Math.max(12, Math.round(font * 1.35));
+  const viewportHeight = window.innerHeight;
+  const budget = landscapePhone
+    ? Math.min(viewportHeight * 0.78, 420)
+    : narrow
+      ? Math.min(viewportHeight * 0.58, 560)
+      : Math.min(viewportHeight * 0.52, 520);
+  const rows = Math.max(14, Math.min(30, Math.floor((budget - padY) / rowHeight)));
+  const height = rows * rowHeight + padY;
+
+  if (wterm) {
+    wterm.style.setProperty("--term-font-size", `${font}px`);
+    wterm.style.setProperty("--term-row-height", `${rowHeight}px`);
+  }
+  if (Math.abs(screen.clientHeight - height) > 1) screen.style.height = `${height}px`;
+
+  if (term) {
+    term.fit();
+    sendSize();
+  }
+}
+
+function scheduleFit() {
+  clearTimeout(fitTimer);
+  fitTimer = setTimeout(fitTerminal, 120);
+}
+
 /* ---------- key choice ---------- */
 
 function choose(next) {
@@ -115,6 +185,7 @@ async function ensureTerm() {
     document.fonts.load('italic 13.5px "Monaspace Argon"'),
     document.fonts.load('700 13.5px "Monaspace Argon"'),
   ]).catch(() => {});
+  measureChar();
   core = await GhosttyCore.load({ wasmPath: wasmUrl, scrollbackLines: 5000 });
   term = new WTerm(termEl, {
     core,
@@ -128,6 +199,7 @@ async function ensureTerm() {
     onTitle: () => {},
   });
   await term.init();
+  fitTerminal();
   return term;
 }
 
@@ -135,10 +207,19 @@ function sendBinary(bytes) {
   if (sock && sock.readyState === WebSocket.OPEN && connected) sock.send(bytes);
 }
 
-function sendSize() {
+function sendSize(cols, rows) {
   if (!sock || sock.readyState !== WebSocket.OPEN || !term) return;
-  sock.send(JSON.stringify({ type: "resize", cols: term.cols || 80, rows: term.rows || 24 }));
+  sock.send(JSON.stringify({
+    type: "resize",
+    cols: cols || term.cols || 80,
+    rows: rows || term.rows || 24,
+  }));
 }
+
+// Keep the soft keyboard available when a tap lands on the terminal grid.
+termEl.addEventListener("click", () => {
+  if (connected) term?.focus();
+});
 
 // Shift+Enter as a newline, for terminals without the Kitty protocol.
 termEl.addEventListener("keydown", (e) => {
@@ -180,6 +261,7 @@ async function startSession() {
 
   try {
     await ensureTerm();
+    fitTerminal();
   } catch (err) {
     console.error("terminal failed to start", err);
     connecting = false;
@@ -257,7 +339,9 @@ function handleServer(raw) {
     if (pendingPrompt) {
       const p = pendingPrompt;
       pendingPrompt = "";
-      setTimeout(() => sendBinary(enc.encode(p)), 350);
+      setTimeout(() => {
+        if (sendPrompt(p)) setStatus("Prompt sent. Watch the context fill up.", "good");
+      }, 350);
     }
     return;
   }
@@ -312,18 +396,48 @@ function endSession() {
 startBtn.addEventListener("click", startSession);
 endBtn.addEventListener("click", endSession);
 
+function sendPrompt(prompt) {
+  if (!connected || !prompt) return false;
+  sendBinary(enc.encode(prompt));
+  // Let the composer paint before Enter, so the whole prompt is submitted.
+  setTimeout(() => {
+    if (connected) sendBinary(enc.encode("\r"));
+  }, 140);
+  if (term) term.focus();
+  return true;
+}
+
 for (const chip of document.querySelectorAll(".chip")) {
   chip.addEventListener("click", () => {
     const prompt = chip.dataset.prompt || "";
     if (connected) {
-      sendBinary(enc.encode(prompt));
-      if (term) term.focus();
-      setStatus("Pasted into the prompt — press Enter to send.");
+      if (sendPrompt(prompt)) setStatus("Sent. The agent is working on it.", "good");
     } else {
       pendingPrompt = prompt;
-      setStatus("Starting a session, then pasting the prompt…");
+      setStatus("Starting a session, then sending the prompt…");
       startSession();
     }
+  });
+}
+
+for (const key of document.querySelectorAll(".key")) {
+  const press = () => {
+    if (!connected) {
+      setStatus("Start a session first; then these keys drive the TUI.", "");
+      return;
+    }
+    const seq = KEY_SEQ[key.dataset.key];
+    if (!seq) return;
+    sendBinary(enc.encode(seq));
+    if (term) term.focus();
+  };
+  // Keep focus (and the soft keyboard) on the terminal.
+  key.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    press();
+  });
+  key.addEventListener("click", (e) => {
+    if (e.detail === 0) press();
   });
 }
 
@@ -358,7 +472,13 @@ for (const [id, source] of [["copy-embed", "embed-code"], ["copy-install", "inst
   });
 }
 
-window.addEventListener("resize", sendSize);
+window.addEventListener("resize", scheduleFit);
+window.addEventListener("orientationchange", () => setTimeout(fitTerminal, 250));
+fitTerminal();
+document.fonts?.ready.then(() => {
+  measureChar();
+  fitTerminal();
+});
 
 if (!("WebSocket" in window)) {
   setStatus("This browser has no WebSocket support, so the live demo can't start. The example session above is static.", "error");
