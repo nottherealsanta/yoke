@@ -24,21 +24,49 @@ If a change makes Yoke harder to read in one sitting, it is probably the wrong c
 - **Few dependencies.** `tokio`, `reqwest` (streaming, rustls), `serde`/`serde_json`, `ratatui`,
   `crossterm`, `anyhow`/`thiserror`, `dirs`. Ask before adding anything else.
 
+## Library first
+
+Yoke is an embeddable Rust library; the CLI is a consumer. `src/lib.rs` exposes
+the public API (`yoke::types`, `yoke::agent`, `yoke::providers`, `yoke::tools`,
+`yoke::prompt`, `yoke::memory`, `yoke::session`, `yoke::context`, `yoke::auth`,
+`yoke::models`, `yoke::Config`). The consumers are the TUI (`yoke::tui`), the
+`--plain` REPL (`yoke::plain`) and the web demo someone else builds under
+`demo/`; all three drive `yoke::agent::run` and render its events. The TUI and
+plain REPL are not feature-gated yet (keeping them ungated is simpler today).
+
+`examples/minimal.rs` is a real provider plus a custom tool; `examples/mock.rs`
+runs a tool call fully offline. `docs/embedding.md` documents the contract.
+
+Safety options shared by the CLI and embedders live in `Config`:
+
+- `--tools read,write,edit` restricts the registry (unknown names error, and
+  the prompt and wire schemas show only the kept tools).
+- `--root DIR` confines `read`/`write`/`edit` to DIR with `Registry::confine`;
+  relative paths resolve inside it, `..` and symlink escapes are rejected.
+  `Workspace:` in the prompt becomes DIR. `bash` is **not** confined; the CLI
+  warns on stderr when both are enabled.
+- `--no-memory` removes the memory section and file path from the prompt and
+  the memory row from the context header; `/memory` reports that it is off.
+
 ## Layout
 
 One crate, binary `yoke`.
 
 ```
 src/
-  main.rs          CLI entry: `yoke`, `yoke login <provider>`, `yoke logout <provider>`, `yoke status`
+  lib.rs           The public API: `pub mod`s, `Config`, crate docs and a doc-test
+  main.rs          CLI entry: `yoke`, `yoke login <provider>`, `yoke logout <provider>`,
+                   `yoke status`; parses flags and hands off to the consumers
+  config.rs        Config: --tools/--root/--no-memory, registry + prompt helpers
   types.rs         Conversation (Message, Part: Text | Reasoning | ToolCall | ToolResult | Image),
                    Request, StreamEvent, Usage
-  loop.rs          The agent loop (below). Owns no UI and no storage
+  loop.rs          The agent loop (below), exported as `yoke::agent`. Owns no UI and no storage
   plain.rs         Throwaway line-mode REPL behind `yoke --plain`
-  tools/           One file per tool: read.rs, write.rs, edit.rs, bash.rs; mod.rs holds the registry
+  tools/           One file per tool: read.rs, write.rs, edit.rs, bash.rs; mod.rs holds the
+                   registry; confine.rs wraps tools with a path root
   memory.rs        The per-project memory file
   models.rs        Model catalog (models.dev + cache + fallbacks) and the config writer
-  prompt.rs        The system prompt: instructions, workspace, date, memory
+  prompt.rs        The system prompt: instructions, workspace, date, tools, memory
   context.rs       Per-section token estimates, real usage and per-model context windows
   clock.rs         UTC date and session timestamp from SystemTime, no crate
   session.rs       Save/load a session as JSONL (one Message per line)
@@ -53,7 +81,7 @@ src/
     grok.rs        xAI (SuperGrok) — device code
     claude.rs      Claude — spawns the Python Agent SDK worker
     claude_worker.py  The worker (uv script, inline deps: claude-agent-sdk)
-    mock.rs        Scripted turns for tests and `YOKE_DEV=1`
+    mock.rs        Scripted turns for tests and `YOKE_DEV=1`; always public for embedders
     copilot.rs     GitHub Copilot — device code
     opencode.rs    OpenCode Go — API key
     openai.rs      OpenAI — API key
@@ -67,6 +95,8 @@ src/
     tools.rs       Mode 2
     raw.rs         Mode 3
     composer.rs    Input box
+examples/          minimal.rs (real provider, custom tool), mock.rs (offline)
+docs/              embedding.md (the library contract)
 ```
 
 ## Providers
@@ -234,8 +264,9 @@ for the next turn, `Esc` cancels; it shows a loading line while the catalog refr
 listing the stale/fallback entries if the fetch fails. `/model <id>` changes the model on the
 current provider and `/model <provider>/<id>` changes both; a model id that itself contains a slash
 (`/model openai/gpt-oss-120b` on groq) is kept whole when the first segment is not a provider switch
-for the current catalog. `/memory` opens the file in `$EDITOR`, then re-reads it into the prompt;
-`/clear`, `/save` (prints the live session path), `/quit`.
+for the current catalog. `/memory` opens the file in `$EDITOR`, then re-reads it into the prompt (with
+`--no-memory` it reports that memory is disabled); `/clear`, `/save` (prints the
+live session path), `/quit`.
 
 ## State
 

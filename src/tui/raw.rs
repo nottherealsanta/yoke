@@ -339,8 +339,10 @@ mod tests {
     fn timeline() -> Timeline {
         Timeline::new(
             "You are Yoke.",
-            "prefers small diffs",
-            PathBuf::from("/home/u/.yoke/projects/-w/memory.md"),
+            Some((
+                PathBuf::from("/home/u/.yoke/projects/-w/memory.md"),
+                "prefers small diffs".into(),
+            )),
             vec![json!({
                 "name": "read",
                 "description": "Read a file",

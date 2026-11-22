@@ -22,18 +22,18 @@ pub fn context_window_from(
 /// The model's context window from the cached catalog in the default Yoke home.
 /// The TUI holds its catalog and calls `context_window_from` instead, so this is
 /// for callers that only know the provider and model id.
-#[allow(dead_code)]
 pub fn context_window(provider: &str, model: &str) -> Option<usize> {
     let home = crate::memory::home(std::env::var("YOKE_HOME").ok().as_deref())?;
     let catalog = crate::models::load_cache(&home)?;
     context_window_from(Some(&catalog), provider, model)
 }
 
-/// Estimated tokens for each visible part of the context.
+/// Estimated tokens for each visible part of the context. `memory` is `None`
+/// when memory is disabled, so no memory row is shown.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Sections {
     pub system: usize,
-    pub memory: usize,
+    pub memory: Option<usize>,
     pub tools: usize,
     pub messages: usize,
 }
@@ -41,26 +41,27 @@ pub struct Sections {
 impl Sections {
     /// `system` is the full system prompt; the memory text is already inside it,
     /// so it is subtracted here and counted once, under `memory`.
-    pub fn new(system: &str, memory: &str, tools: &[Value], messages: &[Message]) -> Self {
-        let system = match system.rfind(memory) {
-            Some(at) if !memory.is_empty() => {
-                let mut without = String::with_capacity(system.len() - memory.len());
+    pub fn new(system: &str, memory: Option<&str>, tools: &[Value], messages: &[Message]) -> Self {
+        let memory_text = memory.unwrap_or_default();
+        let system = match system.rfind(memory_text) {
+            Some(at) if !memory_text.is_empty() => {
+                let mut without = String::with_capacity(system.len() - memory_text.len());
                 without.push_str(&system[..at]);
-                without.push_str(&system[at + memory.len()..]);
+                without.push_str(&system[at + memory_text.len()..]);
                 without
             }
             _ => system.to_string(),
         };
         Self {
             system: estimate(&system),
-            memory: estimate(memory),
+            memory: memory.map(estimate),
             tools: estimate(&serde_json::to_string(tools).unwrap_or_default()),
             messages: estimate(&serde_json::to_string(messages).unwrap_or_default()),
         }
     }
 
     pub fn total(&self) -> usize {
-        self.system + self.memory + self.tools + self.messages
+        self.system + self.memory.unwrap_or(0) + self.tools + self.messages
     }
 
     /// Tokens used: the provider's real input count from the last step when it
@@ -93,10 +94,10 @@ mod tests {
                 text: "hello".into(),
             }],
         }];
-        let sections = Sections::new("be brief\n\nmemory", "memory", &tools, &messages);
+        let sections = Sections::new("be brief\n\nmemory", Some("memory"), &tools, &messages);
 
         assert_eq!(sections.system, estimate("be brief\n\n"));
-        assert_eq!(sections.memory, 2);
+        assert_eq!(sections.memory, Some(2));
         assert_eq!(
             sections.tools,
             estimate(&serde_json::to_string(&tools).unwrap())
@@ -107,16 +108,27 @@ mod tests {
         );
         assert_eq!(
             sections.total(),
-            sections.system + sections.memory + sections.tools + sections.messages
+            sections.system + sections.memory.unwrap() + sections.tools + sections.messages
         );
     }
 
     #[test]
     fn memory_is_removed_from_the_end_of_the_prompt() {
         let system = "memory in the heading\n\nmemory";
-        let sections = Sections::new(system, "memory", &[], &[]);
+        let sections = Sections::new(system, Some("memory"), &[], &[]);
         assert_eq!(sections.system, estimate("memory in the heading\n\n"));
-        assert_eq!(sections.memory, 2);
+        assert_eq!(sections.memory, Some(2));
+    }
+
+    #[test]
+    fn no_memory_counts_no_memory_section() {
+        let sections = Sections::new("just the system prompt", None, &[], &[]);
+        assert_eq!(sections.memory, None);
+        assert_eq!(sections.system, estimate("just the system prompt"));
+        assert_eq!(
+            sections.total(),
+            sections.system + sections.tools + sections.messages
+        );
     }
 
     #[test]
@@ -150,7 +162,7 @@ mod tests {
     fn real_usage_wins_over_the_estimate() {
         let sections = Sections {
             system: 10,
-            memory: 20,
+            memory: Some(20),
             tools: 30,
             messages: 40,
         };

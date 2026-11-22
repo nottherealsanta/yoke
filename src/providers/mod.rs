@@ -25,7 +25,6 @@ pub use crate::auth::Auth;
 pub trait Provider: Send + Sync {
     fn id(&self) -> &'static str;
     /// The exact JSON body that will be sent. Mode 3 shows this verbatim.
-    #[allow(dead_code)] // consumed by the TUI's raw mode in M5
     fn body(&self, req: &Request) -> Value;
     /// Stream the response as normalized events.
     async fn stream(&self, req: &Request) -> Result<BoxStream<'static, Result<StreamEvent>>>;

@@ -1,0 +1,7 @@
+target
+.git
+.env
+plans
+.claude
+node_modules
+demo/**/dist

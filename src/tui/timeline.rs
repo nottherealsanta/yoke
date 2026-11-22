@@ -14,13 +14,9 @@ use crate::r#loop::Event;
 use crate::tools::ToolStatus;
 use crate::types::{Message, Part, Role, StreamEvent, Usage};
 
-/// The three header entries always come first, in this order.
-const HEADER_ENTRIES: usize = 3;
-
 #[derive(Debug, Clone)]
 pub struct Entry {
     /// The loop step that produced this entry, when it came from a step.
-    #[allow(dead_code)] // mode 3 groups entries by step
     pub step: Option<usize>,
     pub kind: EntryKind,
 }
@@ -29,11 +25,10 @@ pub struct Entry {
 pub enum EntryKind {
     SystemPrompt(String),
     Memory {
-        #[allow(dead_code)] // mode 3 prints the path next to the text
         path: PathBuf,
         text: String,
     },
-    ToolSchemas(#[allow(dead_code)] Vec<Value>),
+    ToolSchemas(Vec<Value>),
     /// A message exactly as it sits in the context.
     Message(Message),
     /// One tool call with its live output, final status and wall time.
@@ -44,18 +39,15 @@ pub enum EntryKind {
     },
     /// One step's real usage report.
     Usage {
-        #[allow(dead_code)] // mode 3
         usage: Usage,
     },
     /// One step's exact request body (`StreamEvent::Wire`).
     Wire {
-        #[allow(dead_code)] // mode 3
         body: Value,
     },
     /// The model output that is arriving right now, before `MessageAdded`.
     Streaming {
         text: String,
-        #[allow(dead_code)] // mode 2 shows reasoning
         reasoning: String,
     },
 }
@@ -63,7 +55,6 @@ pub enum EntryKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NoticeLevel {
     Info,
-    #[allow(dead_code)] // modes 2 and 3 can tell a failure from a note
     Error,
 }
 
@@ -86,7 +77,6 @@ impl RunStatus {
         }
     }
 
-    #[allow(dead_code)] // mode 2 prints the status
     pub fn label(self) -> &'static str {
         match self {
             Self::Running => "running",
@@ -138,7 +128,6 @@ impl ToolRun {
     }
 
     /// The JSON arguments on one line, cut to `max` characters.
-    #[allow(dead_code)] // mode 2
     pub fn compact_args(&self, max: usize) -> String {
         let text = serde_json::to_string(&self.args).unwrap_or_else(|_| "{}".into());
         truncate(&text, max)
@@ -149,7 +138,6 @@ fn line_count(text: &str) -> usize {
     text.lines().count()
 }
 
-#[allow(dead_code)] // used by `compact_args`, which modes 2 and 3 call
 fn truncate(text: &str, max: usize) -> String {
     if text.chars().count() <= max {
         return text.to_string();
@@ -173,7 +161,6 @@ pub fn message_text(message: &Message) -> String {
     text
 }
 
-#[allow(dead_code)] // mode 2 shows reasoning dimmed
 pub fn message_reasoning(message: &Message) -> String {
     let mut text = String::new();
     for part in &message.parts {
@@ -191,7 +178,8 @@ pub fn message_reasoning(message: &Message) -> String {
 pub struct Timeline {
     /// The full system prompt (memory included, exactly as the model gets it).
     pub system: String,
-    pub memory: String,
+    /// The memory text, or `None` when memory is disabled.
+    pub memory: Option<String>,
     pub tools: Vec<Value>,
     pub entries: Vec<Entry>,
     /// The last real usage report, for the status line and context total.
@@ -203,18 +191,17 @@ pub struct Timeline {
 }
 
 impl Timeline {
-    /// Start with the three context header entries.
+    /// Start with the context header entries (`memory` is `None` when it is
+    /// disabled, and then no memory row exists at all).
     pub fn new(
         system: impl Into<String>,
-        memory: impl Into<String>,
-        memory_path: PathBuf,
+        memory: Option<(PathBuf, String)>,
         tools: Vec<Value>,
     ) -> Self {
         let system = system.into();
-        let memory = memory.into();
         let mut timeline = Self {
             system: system.clone(),
-            memory: memory.clone(),
+            memory: memory.as_ref().map(|(_, text)| text.clone()),
             tools: tools.clone(),
             entries: Vec::new(),
             last_usage: None,
@@ -225,13 +212,12 @@ impl Timeline {
             step: None,
             kind: EntryKind::SystemPrompt(system),
         });
-        timeline.entries.push(Entry {
-            step: None,
-            kind: EntryKind::Memory {
-                path: memory_path,
-                text: memory,
-            },
-        });
+        if let Some((path, text)) = memory {
+            timeline.entries.push(Entry {
+                step: None,
+                kind: EntryKind::Memory { path, text },
+            });
+        }
         timeline.entries.push(Entry {
             step: None,
             kind: EntryKind::ToolSchemas(tools),
@@ -243,12 +229,11 @@ impl Timeline {
     /// are rebuilt from the assistant's calls and the tool message's results.
     pub fn from_messages(
         system: impl Into<String>,
-        memory: impl Into<String>,
-        memory_path: PathBuf,
+        memory: Option<(PathBuf, String)>,
         tools: Vec<Value>,
         messages: Vec<Message>,
     ) -> Self {
-        let mut timeline = Self::new(system, memory, memory_path, tools);
+        let mut timeline = Self::new(system, memory, tools);
         for message in messages {
             match message.role {
                 Role::Assistant => {
@@ -386,20 +371,36 @@ impl Timeline {
 
     /// `/clear`: keep the context header, drop the conversation.
     pub fn clear_messages(&mut self) {
-        self.entries.truncate(HEADER_ENTRIES);
+        let header = self
+            .entries
+            .iter()
+            .take_while(|entry| {
+                matches!(
+                    entry.kind,
+                    EntryKind::SystemPrompt(_)
+                        | EntryKind::Memory { .. }
+                        | EntryKind::ToolSchemas(_)
+                )
+            })
+            .count();
+        self.entries.truncate(header);
         self.last_usage = None;
         self.step = 0;
         self.streaming = None;
     }
 
     /// `/memory`: replace the stored context text in place.
-    pub fn set_context(&mut self, system: String, memory: String) {
+    pub fn set_context(&mut self, system: String, memory: Option<String>) {
         self.system = system;
         self.memory = memory.clone();
         for entry in &mut self.entries {
             match &mut entry.kind {
                 EntryKind::SystemPrompt(text) => *text = self.system.clone(),
-                EntryKind::Memory { text, .. } => *text = memory.clone(),
+                EntryKind::Memory { text, .. } => {
+                    if let Some(memory) = &memory {
+                        *text = memory.clone();
+                    }
+                }
                 _ => {}
             }
         }
@@ -415,7 +416,7 @@ impl Timeline {
                 _ => None,
             })
             .collect();
-        Sections::new(&self.system, &self.memory, &self.tools, &messages)
+        Sections::new(&self.system, self.memory.as_deref(), &self.tools, &messages)
     }
 
     /// Tokens used: real usage when the provider sent it, else the estimate.
@@ -496,8 +497,10 @@ mod tests {
     fn header() -> Timeline {
         Timeline::new(
             "You are Yoke.",
-            "prefers small diffs",
-            PathBuf::from("/home/u/.yoke/projects/-w/memory.md"),
+            Some((
+                PathBuf::from("/home/u/.yoke/projects/-w/memory.md"),
+                "prefers small diffs".into(),
+            )),
             vec![json!({"name": "read"})],
         )
     }
@@ -629,8 +632,7 @@ mod tests {
         ];
         let timeline = Timeline::from_messages(
             "system",
-            "",
-            PathBuf::from("memory.md"),
+            Some((PathBuf::from("memory.md"), String::new())),
             vec![json!({"name": "read"})],
             messages,
         );
@@ -698,9 +700,9 @@ mod tests {
         let mut timeline = header();
         timeline.push_message(user("hi"));
         timeline.clear_messages();
-        assert_eq!(timeline.entries.len(), HEADER_ENTRIES);
+        assert_eq!(timeline.entries.len(), 3);
 
-        timeline.set_context("new system".into(), "new memory".into());
+        timeline.set_context("new system".into(), Some("new memory".into()));
         match &timeline.entries[0].kind {
             EntryKind::SystemPrompt(text) => assert_eq!(text, "new system"),
             other => panic!("expected the system prompt, got {other:?}"),
@@ -709,6 +711,17 @@ mod tests {
             EntryKind::Memory { text, .. } => assert_eq!(text, "new memory"),
             other => panic!("expected memory, got {other:?}"),
         }
-        assert_eq!(timeline.sections().memory, 3);
+        assert_eq!(timeline.sections().memory, Some(3));
+    }
+
+    #[test]
+    fn no_memory_means_no_memory_row() {
+        let timeline = Timeline::new("system", None, vec![]);
+        assert!(timeline.memory.is_none());
+        assert!(timeline.sections().memory.is_none());
+        assert!(!timeline
+            .entries
+            .iter()
+            .any(|entry| matches!(entry.kind, EntryKind::Memory { .. })));
     }
 }

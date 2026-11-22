@@ -1,4 +1,8 @@
 //! The agent loop; owns no UI and no storage.
+//!
+//! [`run`] sends [`Event`]s over a channel while it drives the model and its
+//! tools. The caller owns the conversation (`&mut Vec<Message>`), approval
+//! replies and the [`CancelToken`]; the loop itself never touches the terminal.
 
 use anyhow::Result;
 use futures::StreamExt;
@@ -11,6 +15,17 @@ use crate::types::{Message, Part, Request, Role, StreamEvent};
 
 pub const DEFAULT_STEP_LIMIT: usize = 200;
 
+/// The sending half of the loop's event channel.
+pub type EventSender = tokio::sync::mpsc::UnboundedSender<Event>;
+/// The receiving half of the loop's event channel.
+pub type EventReceiver = tokio::sync::mpsc::UnboundedReceiver<Event>;
+
+/// A channel for [`Event`]s, the same one [`run`] writes to.
+pub fn event_channel() -> (EventSender, EventReceiver) {
+    mpsc::unbounded_channel()
+}
+
+/// Options for one turn: the model, the system prompt and the step limit.
 #[derive(Debug, Clone)]
 pub struct Options {
     pub model: String,

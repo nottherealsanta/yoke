@@ -1,0 +1,19 @@
+{
+  "name": "yoke-demo-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fontsource/monaspace-argon": "5.3.0",
+    "@wterm/dom": "0.5.10",
+    "@wterm/ghostty": "0.5.10"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  }
+}

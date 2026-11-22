@@ -392,7 +392,6 @@ pub fn routing_metadata(
 
 /// ChatGPT OAuth headers, with a refresh when the access token is missing or
 /// about to expire. The clock is injectable so the refresh rule is testable.
-#[allow(dead_code)] // the codex provider wires this in at M7
 pub struct CodexAuth {
     home: PathBuf,
     clock: fn() -> u64,
@@ -408,7 +407,6 @@ impl std::fmt::Debug for CodexAuth {
     }
 }
 
-#[allow(dead_code)]
 impl CodexAuth {
     pub fn new(home: &Path) -> Self {
         Self {
@@ -450,7 +448,6 @@ impl CodexAuth {
 }
 
 /// A missing access token or one that expires within a minute needs a refresh.
-#[allow(dead_code)] // used by CodexAuth and its tests
 pub fn needs_refresh(now: u64, expires_at: Option<u64>) -> bool {
     expires_at.is_none_or(|expires_at| expires_at <= now.saturating_add(60))
 }

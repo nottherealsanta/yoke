@@ -140,7 +140,45 @@ Each is one small file plus a row in `PROVIDERS`, a live multi-step tool turn, a
 - [ ] `config.toml`: default provider/model, approval default
 - [ ] README with install and a screenshot of each mode
 
+## M10 — Library
+
+- [x] `src/lib.rs`: public modules, crate docs, `Config`, `yoke::agent` (the loop's public name)
+- [x] `main.rs` is a thin consumer via `yoke::…`; no blanket `#[allow(dead_code)]` left
+- [x] Public, documented surface: types, agent, providers (incl. always-available mock), tools,
+      prompt, memory, session, context, auth, models; `yoke::tokio` re-export for embedders
+- [x] `Registry::only` (tool restriction) and `Registry::confine` + `tools::Confined` (path root)
+- [x] `--tools`, `--root`, `--no-memory` in the CLI, TUI and plain REPL; `--help` lists them
+- [x] `examples/minimal.rs` (real provider, custom tool) and `examples/mock.rs` (offline)
+- [x] `docs/embedding.md`
+- [x] Doc-test on `lib.rs` runs a full mock turn offline; tests for restriction, confinement and
+      the no-memory prompt
+
+## M11 — Web demo
+
+Built by another builder under `demo/`; this checklist is only a placeholder here.
+
+- [ ] Terminal in the browser
+- [ ] Sandboxed container
+- [ ] Groq only
+- [ ] BYO key or provided tokens
+- [ ] Deploy as `yoke.santa.build`
+
 ## Decisions
+
+- 2026-11-22: Yoke is a library first. `src/lib.rs` owns the modules; `main.rs` only parses flags
+  and hands off. The loop's public name is `yoke::agent` (the file stays `loop.rs`; a private
+  `crate::r#loop` alias keeps internal paths unchanged). TUI and plain REPL are ungated for now —
+  a feature would touch every consumer for little benefit at this size.
+- 2026-11-22: `--tools` restricts through `Registry::only` (unknown names are an error before the
+  registry changes), so `prompt::build` gets the kept tool names and `registry.schemas()` sends only
+  those. `--root` wraps every tool in `tools::Confined`: it resolves a string `path` argument inside
+  the canonical root (deepest existing parent for new files) and returns an ordinary error result on
+  an escape, so `bash` stays visibly unconfined (the CLI warns on stderr). `--no-memory` makes
+  memory `Option` end to end: absent from the prompt, the timeline and the context header, and
+  `/memory` reports it is disabled.
+- 2026-11-22: `providers::mock::MockProvider` is always public (`text`/`new`/`dev`), so embedders
+  and examples test offline without `YOKE_DEV`. `yoke::tokio` is re-exported; `agent::event_channel`
+  avoids making callers name the channel type.
 
 - 2026-11-22: Python is allowed where a provider's only good client is Python (`claude`); managed by `uv`.
 - 2026-11-22: Memory lives in `~/.yoke/projects/<slug>/memory.md`, not in the project.

@@ -22,7 +22,6 @@ const TAIL: usize = 4;
 const FOLD_OVER: usize = HEAD + 2 + TAIL;
 
 /// Mode 2 lines with every output folded.
-#[allow(dead_code)] // tests render the folded view through it
 pub fn lines(timeline: &Timeline, width: u16) -> Vec<Line<'static>> {
     lines_expanded(timeline, width, &HashSet::new(), None)
 }
@@ -120,14 +119,12 @@ fn context_header(timeline: &Timeline, width: usize) -> Vec<Line<'static>> {
         "context",
         Style::default().add_modifier(Modifier::BOLD),
     )));
-    for (label, tokens) in [
-        ("system prompt", sections.system),
-        ("memory", sections.memory),
-        ("tools", sections.tools),
-        ("messages", sections.messages),
-    ] {
-        lines.push(token_row(label, tokens, width));
+    lines.push(token_row("system prompt", sections.system, width));
+    if let Some(tokens) = sections.memory {
+        lines.push(token_row("memory", tokens, width));
     }
+    lines.push(token_row("tools", sections.tools, width));
+    lines.push(token_row("messages", sections.messages, width));
     lines.push(truncated_line(
         Line::from(Span::styled(
             format!("  {:<15} ~{} tokens", "total", sections.total()),
@@ -479,8 +476,10 @@ mod tests {
     fn header() -> Timeline {
         Timeline::new(
             "You are Yoke.",
-            "prefers small diffs",
-            PathBuf::from("/home/u/.yoke/projects/-w/memory.md"),
+            Some((
+                PathBuf::from("/home/u/.yoke/projects/-w/memory.md"),
+                "prefers small diffs".into(),
+            )),
             vec![json!({"name": "read"})],
         )
     }

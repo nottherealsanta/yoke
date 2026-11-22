@@ -19,14 +19,12 @@ pub fn lines(timeline: &Timeline, width: u16) -> Vec<Line<'static>> {
         "context",
         Style::default().add_modifier(Modifier::BOLD),
     )));
-    for (label, tokens) in [
-        ("system prompt", sections.system),
-        ("memory", sections.memory),
-        ("tools", sections.tools),
-        ("messages", sections.messages),
-    ] {
-        lines.push(token_row(label, tokens));
+    lines.push(token_row("system prompt", sections.system));
+    if let Some(tokens) = sections.memory {
+        lines.push(token_row("memory", tokens));
     }
+    lines.push(token_row("tools", sections.tools));
+    lines.push(token_row("messages", sections.messages));
     lines.push(Line::from(Span::styled(
         format!("  {:<15} ~{} tokens", "total", sections.total()),
         Style::default().add_modifier(Modifier::DIM),

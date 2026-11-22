@@ -70,7 +70,6 @@ pub fn new(base: &str, auth: Option<Box<dyn Auth>>) -> Result<chat::ChatProvider
 }
 
 /// The model ids the server lists at `GET <base>/models`.
-#[allow(dead_code)] // the M9 model picker will use it
 pub async fn models(base: &str, api_key: Option<&str>) -> Result<Vec<String>> {
     let url = models_url(base)?;
     let mut request = reqwest::Client::new().get(url.as_str());
@@ -89,7 +88,6 @@ pub async fn models(base: &str, api_key: Option<&str>) -> Result<Vec<String>> {
 }
 
 /// Pull model ids out of an OpenAI-style `/models` response.
-#[allow(dead_code)] // used by `models` and its tests
 pub fn parse_models(body: &str) -> Result<Vec<String>> {
     let value: Value = serde_json::from_str(body).context("compat: malformed /models response")?;
     Ok(value

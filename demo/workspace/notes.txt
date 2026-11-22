@@ -1,0 +1,14 @@
+Meeting notes - project meadow, week 42
+
+We want the agent to be easy to trust. The hole point is that
+you can see exacly what the model sees, in order, with nothing
+hidden. Ask it to fix the typos in this file and watch the edit
+tool work.
+
+Ideas we liked:
+- a glass box, not a black box
+- one timeline, three zoom levels
+- the raw view is the real request body
+
+Open question: should the summary count the whole week, or just
+the days with sessions? See src/summarize.py.

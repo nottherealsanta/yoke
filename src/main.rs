@@ -1,29 +1,18 @@
 //! CLI entry: `yoke`, `yoke login <provider>`, `yoke logout <provider>`, `yoke status`.
-
-mod auth;
-mod clock;
-mod context;
-mod dotenv;
-mod r#loop;
-mod memory;
-mod models;
-mod plain;
-mod prompt;
-mod providers;
-mod session;
-mod tools;
-mod tui;
-mod types;
+//!
+//! This is a thin consumer of the `yoke` library: parsing flags, building a
+//! [`yoke::Config`] and handing off to the TUI or the plain REPL.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::SystemTime;
 
-use auth::KeySource;
-use providers::PROVIDERS;
-use session::Session;
-use types::Message;
+use yoke::auth::KeySource;
+use yoke::providers::PROVIDERS;
+use yoke::session::Session;
+use yoke::types::Message;
+use yoke::Config;
 
 const USAGE: &str = "\
 Usage: yoke [options]
@@ -34,6 +23,9 @@ Usage: yoke [options]
 Options:
   --provider <id>  Provider id
   --model <name>   Model name
+  --tools <list>   Comma-separated tools to enable (default: read,write,edit,bash)
+  --root <dir>     Confine read/write/edit to this directory
+  --no-memory      Leave the project memory out of the prompt
   --device         Use the device code for codex sign-in
   --yes            Skip approval prompts
   --plain          Plain line-mode REPL
@@ -45,10 +37,23 @@ struct Args {
     command: Command,
     provider: Option<String>,
     model: Option<String>,
+    tools: Option<Vec<String>>,
+    root: Option<PathBuf>,
+    no_memory: bool,
     device: bool,
     yes: bool,
     plain: bool,
     resume: bool,
+}
+
+impl Args {
+    fn config(&self) -> Config {
+        Config {
+            tools: self.tools.clone(),
+            root: self.root.clone(),
+            memory: !self.no_memory,
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -103,6 +108,16 @@ fn run() -> anyhow::Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Command::Run => {
+            if args.root.is_some()
+                && args
+                    .tools
+                    .as_ref()
+                    .is_none_or(|tools| tools.iter().any(|name| name == "bash"))
+            {
+                eprintln!(
+                    "yoke: warning: --root confines read, write and edit; bash is not confined"
+                );
+            }
             if args.plain {
                 plain_mode(&args)?;
             } else {
@@ -118,7 +133,7 @@ fn load_dotenv() {
     let Ok(contents) = std::fs::read_to_string(Path::new(".env")) else {
         return;
     };
-    for (key, value) in dotenv::parse(&contents) {
+    for (key, value) in yoke::dotenv::parse(&contents) {
         if std::env::var_os(&key).is_none() {
             std::env::set_var(key, value);
         }
@@ -144,6 +159,19 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
                         .ok_or_else(|| "--model needs a value".to_string())?,
                 );
             }
+            "--tools" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--tools needs a value".to_string())?;
+                parsed.tools = Some(parse_tools(&value)?);
+            }
+            "--root" => {
+                parsed.root = Some(PathBuf::from(
+                    args.next()
+                        .ok_or_else(|| "--root needs a value".to_string())?,
+                ));
+            }
+            "--no-memory" => parsed.no_memory = true,
             "--yes" => parsed.yes = true,
             "--device" => parsed.device = true,
             "--plain" => parsed.plain = true,
@@ -172,19 +200,42 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     Ok(parsed)
 }
 
+/// Parse `read,write,edit` and reject unknown names before anything runs.
+fn parse_tools(value: &str) -> Result<Vec<String>, String> {
+    let names: Vec<String> = value
+        .split(',')
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .collect();
+    if names.is_empty() {
+        return Err("--tools needs at least one tool name".into());
+    }
+    let available = yoke::tools::default_registry().names();
+    for name in &names {
+        if !available.contains(name) {
+            return Err(format!(
+                "unknown tool `{name}` (available: {})",
+                available.join(", ")
+            ));
+        }
+    }
+    Ok(names)
+}
+
 fn status() -> anyhow::Result<()> {
     let home = yoke_home()?;
     let project = std::env::current_dir()?;
 
     println!("home: {}", home.display());
-    println!("project slug: {}", memory::slug(&project));
+    println!("project slug: {}", yoke::memory::slug(&project));
     println!("providers:");
     for info in PROVIDERS {
-        let stored = auth::stored_key(&home, info.id);
+        let stored = yoke::auth::stored_key(&home, info.id);
         let env = info.env.and_then(|name| std::env::var(name).ok());
         let base_url = if info.id == "compat" {
-            auth::stored_base_url(&home, info.id)
-                .or_else(|| std::env::var(providers::compat::ENV_BASE_URL).ok())
+            yoke::auth::stored_base_url(&home, info.id)
+                .or_else(|| std::env::var(yoke::providers::compat::ENV_BASE_URL).ok())
         } else {
             None
         };
@@ -196,13 +247,13 @@ fn status() -> anyhow::Result<()> {
 
 fn provider_state(
     home: &Path,
-    info: &providers::ProviderInfo,
+    info: &yoke::providers::ProviderInfo,
     stored: Option<String>,
     env: Option<String>,
     base_url: Option<String>,
 ) -> String {
     if info.id == "codex" {
-        return if auth::codex_logged_in(home) {
+        return if yoke::auth::codex_logged_in(home) {
             "signed in"
         } else {
             "-"
@@ -212,7 +263,7 @@ fn provider_state(
     if info.id == "compat" {
         return base_url.unwrap_or_else(|| "-".into());
     }
-    match auth::ApiKeyAuth::new(stored, env) {
+    match yoke::auth::ApiKeyAuth::new(stored, env) {
         Some(auth) => match auth.source() {
             KeySource::Stored => "api key (stored)",
             KeySource::Env => "api key (env)",
@@ -224,11 +275,11 @@ fn provider_state(
 
 fn yoke_home() -> anyhow::Result<PathBuf> {
     let env_home = std::env::var("YOKE_HOME").ok();
-    memory::home(env_home.as_deref())
+    yoke::memory::home(env_home.as_deref())
         .ok_or_else(|| anyhow::anyhow!("cannot determine home directory; set YOKE_HOME"))
 }
 
-fn provider_info(id: &str) -> anyhow::Result<&'static providers::ProviderInfo> {
+fn provider_info(id: &str) -> anyhow::Result<&'static yoke::providers::ProviderInfo> {
     PROVIDERS
         .iter()
         .find(|info| info.id == id)
@@ -259,10 +310,10 @@ fn login(provider: &str) -> anyhow::Result<()> {
     }
 
     let home = yoke_home()?;
-    auth::set_api_key(&home, provider, key)?;
+    yoke::auth::set_api_key(&home, provider, key)?;
     println!(
         "stored {provider} API key in {} (or set {env})",
-        auth::auth_path(&home).display()
+        yoke::auth::auth_path(&home).display()
     );
     Ok(())
 }
@@ -274,7 +325,7 @@ fn compat_login() -> anyhow::Result<()> {
     if std::io::stdin().read_line(&mut base)? == 0 {
         anyhow::bail!("no base URL read");
     }
-    let base = providers::compat::normalize_base_url(&base)?;
+    let base = yoke::providers::compat::normalize_base_url(&base)?;
 
     print!("API key (leave empty for none): ");
     std::io::stdout().flush()?;
@@ -286,20 +337,20 @@ fn compat_login() -> anyhow::Result<()> {
     }
 
     let home = yoke_home()?;
-    auth::set_endpoint(&home, "compat", &base, (!key.is_empty()).then_some(key))?;
+    yoke::auth::set_endpoint(&home, "compat", &base, (!key.is_empty()).then_some(key))?;
     println!(
         "stored compat base URL {base} in {}",
-        auth::auth_path(&home).display()
+        yoke::auth::auth_path(&home).display()
     );
     if key.is_empty() {
         println!(
             "no API key stored (or set {})",
-            providers::compat::ENV_API_KEY
+            yoke::providers::compat::ENV_API_KEY
         );
     } else {
         println!(
             "stored the compat API key (or set {})",
-            providers::compat::ENV_API_KEY
+            yoke::providers::compat::ENV_API_KEY
         );
     }
     Ok(())
@@ -308,12 +359,12 @@ fn compat_login() -> anyhow::Result<()> {
 fn codex_login(device: bool) -> anyhow::Result<()> {
     let home = yoke_home()?;
     let method = if device {
-        providers::codex::Method::Device
+        yoke::providers::codex::Method::Device
     } else {
-        providers::codex::Method::Browser
+        yoke::providers::codex::Method::Browser
     };
     let runtime = tokio::runtime::Runtime::new()?;
-    runtime.block_on(providers::codex::login(&home, method, |line| {
+    runtime.block_on(yoke::providers::codex::login(&home, method, |line| {
         println!("{line}");
     }))?;
     println!("signed in to codex");
@@ -323,7 +374,7 @@ fn codex_login(device: bool) -> anyhow::Result<()> {
 fn logout(provider: &str) -> anyhow::Result<()> {
     provider_info(provider)?;
     let home = yoke_home()?;
-    if auth::remove(&home, provider)? {
+    if yoke::auth::remove(&home, provider)? {
         println!("logged out of {provider}");
     } else {
         println!("{provider} had no stored credentials");
@@ -333,18 +384,20 @@ fn logout(provider: &str) -> anyhow::Result<()> {
 
 fn plain_mode(args: &Args) -> anyhow::Result<()> {
     let home = yoke_home()?;
-    let workspace = std::env::current_dir()?;
+    let config = args.config();
+    let workspace = config.workspace(&std::env::current_dir()?)?;
     let provider_id = args.provider.as_deref().unwrap_or("groq");
     let model = args
         .model
         .clone()
-        .unwrap_or_else(|| providers::default_model(provider_id).to_string());
+        .unwrap_or_else(|| yoke::providers::default_model(provider_id).to_string());
     let dev = std::env::var("YOKE_DEV").ok();
-    let provider = providers::make(provider_id, &model, dev.as_deref(), &home, |name| {
+    let provider = yoke::providers::make(provider_id, &model, dev.as_deref(), &home, |name| {
         std::env::var(name).ok()
     })?;
-    let start = startup(&home, &workspace, args.resume)?;
-    let options = r#loop::Options {
+    let registry = config.registry()?;
+    let start = startup(&home, &workspace, &config, &registry, args.resume)?;
+    let options = yoke::agent::Options {
         yes: args.yes,
         conversation_id: start
             .session
@@ -352,7 +405,7 @@ fn plain_mode(args: &Args) -> anyhow::Result<()> {
             .file_stem()
             .and_then(|stem| stem.to_str())
             .map(str::to_string),
-        ..r#loop::Options::new(model.clone(), start.instructions.clone())
+        ..yoke::agent::Options::new(model.clone(), start.instructions.clone())
     };
 
     println!(
@@ -360,9 +413,9 @@ fn plain_mode(args: &Args) -> anyhow::Result<()> {
         provider.id()
     );
     println!("session: {}", start.session.path().display());
-    let mut plain = plain::Plain {
+    let mut plain = yoke::plain::Plain {
         provider,
-        registry: tools::default_registry(),
+        registry,
         options,
         messages: start.messages,
         session: start.session,
@@ -373,19 +426,21 @@ fn plain_mode(args: &Args) -> anyhow::Result<()> {
 /// Bare `yoke`: the TUI, with the same startup path as the plain REPL.
 fn tui_mode(args: &Args) -> anyhow::Result<()> {
     let home = yoke_home()?;
-    let workspace = std::env::current_dir()?;
-    let slug = memory::slug(&workspace);
+    let config = args.config();
+    let workspace = config.workspace(&std::env::current_dir()?)?;
+    let slug = yoke::memory::slug(&workspace);
     let provider_id = args.provider.as_deref().unwrap_or("groq");
     let model = args
         .model
         .clone()
-        .unwrap_or_else(|| providers::default_model(provider_id).to_string());
+        .unwrap_or_else(|| yoke::providers::default_model(provider_id).to_string());
     let dev = std::env::var("YOKE_DEV").ok();
-    let provider = providers::make(provider_id, &model, dev.as_deref(), &home, |name| {
+    let provider = yoke::providers::make(provider_id, &model, dev.as_deref(), &home, |name| {
         std::env::var(name).ok()
     })?;
-    let start = startup(&home, &workspace, args.resume)?;
-    let options = r#loop::Options {
+    let registry = config.registry()?;
+    let start = startup(&home, &workspace, &config, &registry, args.resume)?;
+    let options = yoke::agent::Options {
         yes: args.yes,
         conversation_id: start
             .session
@@ -393,17 +448,18 @@ fn tui_mode(args: &Args) -> anyhow::Result<()> {
             .file_stem()
             .and_then(|stem| stem.to_str())
             .map(str::to_string),
-        ..r#loop::Options::new(model.clone(), start.instructions.clone())
+        ..yoke::agent::Options::new(model.clone(), start.instructions.clone())
     };
-    let memory_path = memory::memory_path(&home, &slug);
-    let setup = tui::Setup {
+    let memory_path = yoke::memory::memory_path(&home, &slug);
+    let setup = yoke::tui::Setup {
         provider,
-        registry: tools::default_registry(),
+        registry,
         options,
         messages: start.messages,
         session: start.session,
         instructions: start.instructions,
         memory: start.memory,
+        memory_enabled: config.memory,
         memory_path,
         home,
         slug,
@@ -412,31 +468,39 @@ fn tui_mode(args: &Args) -> anyhow::Result<()> {
         model,
     };
     let runtime = tokio::runtime::Runtime::new()?;
-    runtime.block_on(tui::run(setup))
+    runtime.block_on(yoke::tui::run(setup))
 }
 
 /// What the TUI or plain REPL needs at startup: the system prompt, the memory
 /// text for context accounting, a new session file, and any resumed messages.
 struct Startup {
     instructions: String,
-    memory: String,
+    memory: Option<(PathBuf, String)>,
     session: Session,
     messages: Vec<Message>,
 }
 
-fn startup(home: &Path, workspace: &Path, resume: bool) -> anyhow::Result<Startup> {
-    let slug = memory::slug(workspace);
-    let memory_path = memory::memory_path(home, &slug);
-    let memory = memory::read(&memory_path);
-    let instructions = prompt::build(
+fn startup(
+    home: &Path,
+    workspace: &Path,
+    config: &Config,
+    registry: &yoke::tools::Registry,
+    resume: bool,
+) -> anyhow::Result<Startup> {
+    let slug = yoke::memory::slug(workspace);
+    let memory_path = yoke::memory::memory_path(home, &slug);
+    let memory = config.memory(&memory_path);
+    let instructions = config.instructions(
         workspace,
-        &clock::date(SystemTime::now()),
-        &memory_path,
-        &memory,
+        &yoke::clock::date(SystemTime::now()),
+        &registry.names(),
+        memory
+            .as_ref()
+            .map(|(path, text)| (path.as_path(), text.as_str())),
     );
     let messages = if resume {
-        match session::latest(home, &slug) {
-            Some(path) => session::load(&path)?,
+        match yoke::session::latest(home, &slug) {
+            Some(path) => yoke::session::load(&path)?,
             None => Vec::new(),
         }
     } else {
@@ -498,6 +562,32 @@ mod tests {
     }
 
     #[test]
+    fn parses_the_safety_flags() {
+        let root = std::env::temp_dir().join(format!("yoke-root-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let root_text = root.to_str().unwrap();
+        let args = parse(&["--tools", "read,edit", "--root", root_text, "--no-memory"]).unwrap();
+        assert_eq!(
+            args.tools.as_deref(),
+            Some(&["read".to_string(), "edit".to_string()][..])
+        );
+        assert_eq!(args.root.as_deref(), Some(root.as_path()));
+        assert!(args.no_memory);
+        let config = args.config();
+        assert!(!config.memory);
+        assert_eq!(config.registry().unwrap().names(), ["read", "edit"]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn rejects_a_bad_tool_list() {
+        let error = parse(&["--tools", "read,nope"]).unwrap_err();
+        assert!(error.contains("unknown tool `nope`"), "{error}");
+        assert!(parse(&["--tools", " , "]).is_err());
+        assert!(parse(&["--tools"]).is_err());
+    }
+
+    #[test]
     fn rejects_bad_usage() {
         assert!(parse(&["login"]).is_err());
         assert!(parse(&["login", "a", "b"]).is_err());
@@ -508,14 +598,14 @@ mod tests {
 
     #[test]
     fn status_shows_the_compat_base_url_and_not_the_key() {
-        use crate::tools::testutil::TempDir;
+        let home = std::env::temp_dir().join(format!("yoke-status-{}", std::process::id()));
+        std::fs::create_dir_all(&home).unwrap();
 
-        let home = TempDir::new("status");
         let compat = PROVIDERS.iter().find(|info| info.id == "compat").unwrap();
-        assert_eq!(provider_state(home.path(), compat, None, None, None), "-");
+        assert_eq!(provider_state(&home, compat, None, None, None), "-");
         assert_eq!(
             provider_state(
-                home.path(),
+                &home,
                 compat,
                 Some("secret-key".into()),
                 None,
@@ -526,8 +616,10 @@ mod tests {
 
         let groq = PROVIDERS.iter().find(|info| info.id == "groq").unwrap();
         assert_eq!(
-            provider_state(home.path(), groq, None, Some("key".into()), None),
+            provider_state(&home, groq, None, Some("key".into()), None),
             "api key (env)"
         );
+
+        let _ = std::fs::remove_dir_all(&home);
     }
 }

@@ -23,16 +23,20 @@ impl MockProvider {
         }
     }
 
-    /// The `YOKE_DEV=1` default: one short text reply.
-    pub fn dev() -> Self {
+    /// One turn that streams `text` and ends. Handy for offline tests and
+    /// examples: `MockProvider::text("hello")`.
+    pub fn text(text: impl Into<String>) -> Self {
         Self::new(vec![vec![
-            StreamEvent::TextDelta {
-                text: "hello".into(),
-            },
+            StreamEvent::TextDelta { text: text.into() },
             StreamEvent::Done {
                 stop: "end_turn".into(),
             },
         ]])
+    }
+
+    /// The `YOKE_DEV=1` default: one short text reply.
+    pub fn dev() -> Self {
+        Self::text("hello")
     }
 }
 

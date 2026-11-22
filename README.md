@@ -55,8 +55,19 @@ No hidden database.
 ## Many models, one app
 
 Yoke talks to many AI providers: ChatGPT (Codex), Claude, Grok, GitHub Copilot, OpenAI, Groq,
-NVIDIA, OpenCode and local models through Ollama. You can switch between them; the screen works
-the same way for all of them.
+OpenCode and any OpenAI-compatible server (`compat`). You can switch between them; the screen
+works the same way for all of them.
+
+## Build your own agent
+
+Yoke is also a Rust library. The CLI is just one consumer: `yoke::agent::run` takes a provider,
+a tool registry and your messages, and emits events for whatever UI you write. See
+[docs/embedding.md](docs/embedding.md), or start from `examples/minimal.rs` and the fully offline
+`examples/mock.rs`.
+
+For hosted use there are safety flags: `--tools read,write,edit` limits which tools exist,
+`--root DIR` confines the file tools to a directory, and `--no-memory` leaves the notes file out
+of the prompt entirely. (`bash` is not confined by `--root`; the CLI warns when both are on.)
 
 ## Kept small on purpose
 

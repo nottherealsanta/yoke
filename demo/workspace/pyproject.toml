@@ -1,0 +1,5 @@
+[project]
+name = "meadow"
+version = "0.1.0"
+description = "A tiny made-up project for the Yoke demo"
+requires-python = ">=3.10"

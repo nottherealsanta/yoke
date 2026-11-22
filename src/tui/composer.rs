@@ -59,7 +59,6 @@ impl Composer {
         self.edited();
     }
 
-    #[allow(dead_code)] // used by tests and future paste handling
     pub fn insert_str(&mut self, text: &str) {
         self.text.insert_str(self.cursor, text);
         self.cursor += text.len();

@@ -150,7 +150,6 @@ pub struct StatusLine<'a> {
     pub running: bool,
 }
 
-#[allow(dead_code)] // the simple two-pane view; tests draw through it
 pub struct View<'a> {
     pub timeline: &'a Timeline,
     pub mode: Mode,
@@ -170,7 +169,9 @@ pub struct Setup {
     pub messages: Vec<Message>,
     pub session: Session,
     pub instructions: String,
-    pub memory: String,
+    /// The memory path and text, or `None` with `--no-memory`.
+    pub memory: Option<(PathBuf, String)>,
+    pub memory_enabled: bool,
     pub memory_path: PathBuf,
     pub home: PathBuf,
     pub slug: String,
@@ -251,7 +252,6 @@ fn resume(terminal: &mut Tui) -> Result<()> {
 }
 
 /// The pure renderer: timeline + view state in, one frame out.
-#[allow(dead_code)] // the simple two-pane view; the app composes its own layout
 pub fn draw(frame: &mut Frame, view: &View) {
     let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(frame.area());
     draw_body(
@@ -322,7 +322,6 @@ fn draw_status(frame: &mut Frame, area: Rect, status: &StatusLine, mode: Mode) {
 }
 
 /// The lines of the selected mode with no tool output expanded and no row selected.
-#[allow(dead_code)] // draw_body always passes the app's tool state; tests use this default
 pub fn lines(timeline: &Timeline, mode: Mode, width: u16) -> Vec<Line<'static>> {
     lines_with(timeline, mode, width, &HashSet::new(), None)
 }
@@ -394,6 +393,7 @@ struct App {
     slug: String,
     workspace: PathBuf,
     memory_path: PathBuf,
+    memory_enabled: bool,
     provider_id: String,
     model: String,
     /// The last good catalog (cache, then a live fetch). `None` means fallbacks.
@@ -428,6 +428,7 @@ impl App {
             session,
             instructions,
             memory,
+            memory_enabled,
             memory_path,
             home,
             slug,
@@ -437,13 +438,8 @@ impl App {
         } = setup;
 
         options.conversation_id = conversation_id(&session);
-        let timeline = Timeline::from_messages(
-            instructions,
-            memory,
-            memory_path.clone(),
-            registry.schemas(),
-            messages.clone(),
-        );
+        let timeline =
+            Timeline::from_messages(instructions, memory, registry.schemas(), messages.clone());
         let catalog = models::load_cache(&home);
 
         Self {
@@ -458,6 +454,7 @@ impl App {
             slug,
             workspace,
             memory_path,
+            memory_enabled,
             provider_id,
             model,
             catalog,
@@ -1165,6 +1162,10 @@ impl App {
     }
 
     fn edit_memory(&mut self) -> Result<()> {
+        if !self.memory_enabled {
+            self.timeline.notice("memory is disabled (--no-memory)");
+            return Ok(());
+        }
         if let Some(parent) = self.memory_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -1189,11 +1190,11 @@ impl App {
         let instructions = prompt::build(
             &self.workspace,
             &clock::date(SystemTime::now()),
-            &self.memory_path,
-            &memory,
+            &self.registry.names(),
+            Some((&self.memory_path, &memory)),
         );
         self.options.instructions = instructions.clone();
-        self.timeline.set_context(instructions, memory);
+        self.timeline.set_context(instructions, Some(memory));
         self.timeline
             .notice(format!("memory: {}", self.memory_path.display()));
         Ok(())
@@ -1279,7 +1280,8 @@ mod tests {
             messages: Vec::new(),
             session: Session::create(home.path(), "-w").unwrap(),
             instructions: "system".into(),
-            memory: String::new(),
+            memory: Some((home.path().join("memory.md"), String::new())),
+            memory_enabled: true,
             memory_path: home.path().join("memory.md"),
             home: home.path().to_path_buf(),
             slug: "-w".into(),
@@ -1677,8 +1679,10 @@ mod tests {
     fn overview_snapshot_has_header_messages_folded_tools_and_streaming() {
         let mut timeline = Timeline::new(
             "You are Yoke.",
-            "prefers small diffs",
-            PathBuf::from("/home/u/.yoke/projects/-w/memory.md"),
+            Some((
+                PathBuf::from("/home/u/.yoke/projects/-w/memory.md"),
+                "prefers small diffs".into(),
+            )),
             vec![serde_json::json!({"name": "read"})],
         );
         timeline.push_message(Message {
@@ -1755,8 +1759,10 @@ streaming now▌
 
         let mut timeline = Timeline::new(
             "You are Yoke.\nRead files before editing.",
-            "prefers small diffs",
-            PathBuf::from("/home/u/.yoke/projects/-w/memory.md"),
+            Some((
+                PathBuf::from("/home/u/.yoke/projects/-w/memory.md"),
+                "prefers small diffs".into(),
+            )),
             vec![json!({"name": "read", "description": "read a file"})],
         );
         timeline.push_message(Message {
@@ -2044,7 +2050,7 @@ streaming now▌
 
     #[test]
     fn tool_runs_and_approvals_do_not_leak_into_the_timeline() {
-        let mut timeline = Timeline::new("s", "", PathBuf::from("m"), vec![]);
+        let mut timeline = Timeline::new("s", None, vec![]);
         timeline.apply(Event::Notice("hi".into()));
         let notes = timeline
             .entries

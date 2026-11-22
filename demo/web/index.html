@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <meta name="description" content="Yoke is a tiny Rust agent whose screen is exactly the model's context. Run the real TUI in your browser, or build on its loop.">
+  <title>yoke — the foundation layer for agents you can see through</title>
+  <link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+<a class="skip" href="#try">Skip to the live demo</a>
+
+<header class="site-head">
+  <div class="wrap head-inner">
+    <a class="wordmark" href="#top" aria-label="yoke home"><span class="mark" aria-hidden="true"></span>yoke</a>
+    <nav aria-label="Primary">
+      <a href="#try">Try it</a>
+      <a href="#modes">Modes</a>
+      <a href="#build">Build on it</a>
+      <a class="gh" href="https://github.com/nottherealsanta/yoke">GitHub <span aria-hidden="true">↗</span></a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero wrap">
+    <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> An agent whose context you can read</p>
+    <h1><span class="h1-word">yoke</span></h1>
+    <p class="lede">the foundation layer for agents you can see through</p>
+    <p class="tagline">What the model sees is what you see — the system prompt, the memory, the tools, every message and every tool result, in order. Nothing hidden, nothing extra.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="#try">Try the live demo</a>
+      <a class="btn btn-quiet" href="https://github.com/nottherealsanta/yoke">Read the source <span aria-hidden="true">↗</span></a>
+    </div>
+    <ul class="hero-facts" aria-label="At a glance">
+      <li><strong>1</strong> loop</li>
+      <li><strong>4</strong> small tools</li>
+      <li><strong>3</strong> views of one timeline</li>
+      <li><strong>0</strong> hidden context</li>
+    </ul>
+  </section>
+
+  <section id="try" class="wrap demo-section" aria-labelledby="try-title">
+    <div class="section-head">
+      <div>
+        <p class="kicker">Live, not a video</p>
+        <h2 id="try-title">The real TUI, in a throwaway box</h2>
+      </div>
+      <p class="section-note">A real <code>yoke</code> process runs on our server for you. Only <code>read</code>, <code>write</code> and <code>edit</code> are enabled, inside a scratch folder that disappears when the session ends.</p>
+    </div>
+
+    <div class="demo-grid">
+      <aside class="key-panel" aria-labelledby="keys-title">
+        <h3 id="keys-title">Two ways in</h3>
+        <div class="choice-stack" role="group" aria-label="Choose a key">
+          <button type="button" class="choice" id="choice-provided" data-mode="provided" aria-pressed="true">
+            <span class="choice-dot" aria-hidden="true"></span>
+            <span class="choice-body">
+              <span class="choice-title">Use our demo tokens</span>
+              <span class="choice-sub">Free, rate-limited. No key needed.</span>
+            </span>
+            <span class="choice-flag">Included</span>
+          </button>
+          <button type="button" class="choice" id="choice-byo" data-mode="byo" aria-pressed="false">
+            <span class="choice-dot" aria-hidden="true"></span>
+            <span class="choice-body">
+              <span class="choice-title">Bring your own Groq key</span>
+              <span class="choice-sub">Unlimited sessions, still rate-limited by capacity.</span>
+            </span>
+            <span class="choice-flag">BYO</span>
+          </button>
+        </div>
+
+        <div class="byo-field" id="byo-field" hidden>
+          <label for="api-key">Groq API key</label>
+          <input id="api-key" type="password" name="groq-key" autocomplete="off" spellcheck="false" placeholder="gsk_…" aria-describedby="key-privacy">
+          <p class="fine" id="key-privacy">Sent over TLS to start your session only. It lives in memory of that one process — never stored, never logged. Get a key at <a href="https://console.groq.com/keys">console.groq.com/keys</a>.</p>
+        </div>
+
+        <div class="fine" id="provided-note">
+          <strong>Bring your own Groq key, or use our free demo tokens — rate-limited.</strong>
+          Demo tokens are shared: a few sessions per visitor per hour, and a daily cap for the whole site.
+        </div>
+
+        <button type="button" class="btn btn-primary btn-wide" id="start">Start a session</button>
+        <div class="session-row" id="session-row" hidden>
+          <span class="timer" id="timer" aria-label="Session time remaining">15:00</span>
+          <button type="button" class="btn btn-quiet btn-small" id="end">End session</button>
+        </div>
+        <p class="status" id="status" role="status" aria-live="polite"></p>
+      </aside>
+
+      <div class="terminal-column">
+        <div class="terminal" id="terminal-frame">
+          <div class="titlebar">
+            <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="term-title">yoke — demo session</span>
+            <span class="conn" id="conn"><span class="conn-dot" aria-hidden="true"></span><span id="conn-label">not started</span></span>
+          </div>
+          <div class="term-screen" id="term-screen">
+            <div class="fallback" id="fallback" aria-label="Example yoke session">
+              <div class="fbar"><span class="on">1 Overview</span><span>2 Tools</span><span>3 Raw</span><span class="fmodel">groq · llama · 6.1k / 128k</span></div>
+              <pre class="ftext"><span class="dim">╭─ context ─────────────────────────────────────────────╮</span>
+<span class="dim">│</span> system prompt  <span class="dim">~1,240 tok</span>   memory  <span class="dim">—</span>   tools  <span class="dim">~610 tok</span> <span class="dim">│</span>
+<span class="dim">╰───────────────────────────────────────────────────────╯</span>
+
+<span class="you">you</span>  read notes.txt and fix the typos
+<span class="agent">yoke</span>  I'll read it first.
+ <span class="tool">▸ 1 tool · read · notes.txt · 12 lines</span>
+<span class="agent">yoke</span>  Two typos: "hole" → "whole", "exacly" → "exactly".
+ <span class="tool">▸ 1 tool · edit · notes.txt · +2 −2</span>
+<span class="agent">yoke</span>  Fixed. The meaning is unchanged.
+
+<span class="prompt">›</span> <span class="cursor">█</span></pre>
+            </div>
+            <div id="term"></div>
+          </div>
+        </div>
+
+        <div class="chips" aria-label="Sample prompts">
+          <span class="chips-label">Try a prompt</span>
+          <button type="button" class="chip" data-prompt="read notes.txt and fix the typos">read notes.txt and fix the typos</button>
+          <button type="button" class="chip" data-prompt="find the bug in src/summarize.py">find the bug in src/summarize.py</button>
+          <button type="button" class="chip" data-prompt="add a busiest_day() function to src/summarize.py">add a busiest_day() function</button>
+          <button type="button" class="chip" data-prompt="what files are here?">what files are here?</button>
+        </div>
+
+        <div class="cheatsheet" aria-label="Keyboard cheatsheet">
+          <span><kbd>Tab</kbd> / <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> modes</span>
+          <span><kbd>Enter</kbd> send</span>
+          <span><kbd>Esc</kbd> interrupt</span>
+          <span><kbd>Ctrl-N</kbd>/<kbd>P</kbd> + <kbd>Enter</kbd> expand tool</span>
+          <span><kbd>/model</kbd> <kbd>/clear</kbd> <kbd>/quit</kbd></span>
+        </div>
+
+        <p class="demo-note">
+          Only <code>read</code>, <code>write</code> and <code>edit</code> are enabled. No <code>bash</code>, no network from the
+          agent, no memory file. The folder is destroyed when you leave. The conversation itself is sent to Groq.
+        </p>
+        <noscript><p class="noscript">JavaScript is off, so the live terminal can't start. The example above is a static preview — the real thing runs the same TUI, with your keystrokes.</p></noscript>
+      </div>
+    </div>
+  </section>
+
+  <section id="modes" class="wrap modes-section" aria-labelledby="modes-title">
+    <div class="section-head">
+      <div>
+        <p class="kicker">One timeline, three zoom levels</p>
+        <h2 id="modes-title">Three modes, one timeline</h2>
+      </div>
+      <p class="section-note">The mode is only a view. It never changes what the model receives. Press <kbd>Tab</kbd> to cycle, or jump with <kbd>1</kbd>, <kbd>2</kbd>, <kbd>3</kbd>.</p>
+    </div>
+    <div class="mode-grid">
+      <article class="mode-card">
+        <header><span class="mode-num">1</span><h3>Overview</h3><span class="mode-for">read the conversation</span></header>
+        <div class="mini mini-overview" aria-hidden="true">
+          <div class="mini-head"><span class="dim">context</span><span>system 1.2k</span><span>tools 610</span></div>
+          <p><b class="you">you</b> what files are here?</p>
+          <p><b class="agent">yoke</b> Let me look.</p>
+          <p class="fold">▸ 1 tool · read · . · 5 entries</p>
+          <p><b class="agent">yoke</b> notes.txt, todo.md, src/, data/, README.md.</p>
+        </div>
+        <p class="mode-copy">Tool runs fold into one line per group, so the conversation stays readable.</p>
+      </article>
+      <article class="mode-card">
+        <header><span class="mode-num">2</span><h3>Tools</h3><span class="mode-for">follow what it did</span></header>
+        <div class="mini mini-tools" aria-hidden="true">
+          <div class="mini-tool"><span class="ok">ok</span> read <span class="dim">notes.txt</span> <span class="right">0.1s</span></div>
+          <pre class="mini-out">Meeting notes — project meadow…
+we want the agent to be easy to trust.</pre>
+          <div class="mini-tool"><span class="ok">ok</span> edit <span class="dim">notes.txt</span> <span class="right">+2 −2</span></div>
+          <pre class="mini-out"><span class="del">− the hole point</span>
+<span class="ins">+ the whole point</span></pre>
+        </div>
+        <p class="mode-copy">Every call on its own row: arguments, status, duration, output and diffs.</p>
+      </article>
+      <article class="mode-card">
+        <header><span class="mode-num">3</span><h3>Raw</h3><span class="mode-for">trust, then debug</span></header>
+        <div class="mini mini-raw" aria-hidden="true">
+          <pre>{
+  "model": "llama-…",
+  "input": [
+    { "role": "system",
+      "content": "You are yoke…" },
+    { "role": "user",
+      "content": "what files are here?" }
+  ],
+  "parallel_tool_calls": false
+}</pre>
+        </div>
+        <p class="mode-copy">The exact request body, the full system prompt, every schema and every byte of history.</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="build" class="wrap build-section" aria-labelledby="build-title">
+    <div class="section-head">
+      <div>
+        <p class="kicker">Small enough to read in one sitting</p>
+        <h2 id="build-title">Build on it</h2>
+      </div>
+      <p class="section-note">Yoke is one Rust crate with no daemon, no HTTP API and no subagents. The loop owns no UI and no storage, so you can put your own face on it.</p>
+    </div>
+
+    <div class="build-grid">
+      <div class="layers" aria-label="Yoke's layers">
+        <div class="layer"><span class="layer-name">types</span><span class="layer-desc">messages, parts, requests, usage</span></div>
+        <div class="layer"><span class="layer-name">providers &amp; tools</span><span class="layer-desc">one dialect each; read, write, edit, bash</span></div>
+        <div class="layer"><span class="layer-name">loop</span><span class="layer-desc">model → tool calls → results → model</span></div>
+        <div class="layer layer-last"><span class="layer-name">consumers</span><span class="layer-desc">the TUI, plain mode, and this demo</span></div>
+        <p class="layers-note">Each layer is replaceable. This page drives the same loop through a PTY; it does not fork it.</p>
+      </div>
+
+      <div class="code-card">
+        <div class="code-head"><span>embedding the loop</span><button type="button" class="copy" id="copy-embed" aria-label="Copy the Rust snippet">copy</button></div>
+        <!-- EMBED-SNIPPET: align with the real library API from examples/minimal.rs when it lands. -->
+        <pre class="code"><code id="embed-code"><span class="kw">use</span> yoke::{loop::run, providers, tools};
+
+<span class="cm">// A consumer supplies the provider, the tools and a sink for events.</span>
+<span class="kw">let</span> provider = providers::make(<span class="str">"groq"</span>, <span class="str">"llama-3.3-70b-versatile"</span>)?;
+<span class="kw">let</span> mut registry = tools::Registry::default();
+registry.add(MyTool); <span class="cm">// name, schema, run()</span>
+
+run(Request::new(system_prompt, memory, conversation), provider, registry, |event| {
+    <span class="cm">// StreamEvent::Text, ToolStart, ToolOutput, ToolEnd…</span>
+    app.apply(event);
+}).<span class="kw">await</span>?;</code></pre>
+        <p class="code-note">The current API is in the repo; this snippet follows <code>examples/minimal.rs</code> as the library split lands.</p>
+      </div>
+    </div>
+
+    <div class="install-row">
+      <div>
+        <h3>Install</h3>
+        <p class="fine">Rust 1.80+ and a terminal. Then <code>yoke login groq</code>, or set <code>GROQ_API_KEY</code>.</p>
+      </div>
+      <div class="install-box">
+        <code id="install-cmd">cargo install --git https://github.com/nottherealsanta/yoke</code>
+        <button type="button" class="copy" id="copy-install" aria-label="Copy the install command">copy</button>
+      </div>
+    </div>
+
+    <div class="providers-row" aria-labelledby="providers-title">
+      <h3 id="providers-title">Providers</h3>
+      <ul class="providers">
+        <li><span class="prov-name">codex</span><span>ChatGPT sign-in</span></li>
+        <li><span class="prov-name">opencode</span><span>API key</span></li>
+        <li><span class="prov-name">openai</span><span>API key</span></li>
+        <li><span class="prov-name">groq</span><span>API key · used by this demo</span></li>
+        <li><span class="prov-name">compat</span><span>any OpenAI-compatible server</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="keys" class="wrap keys-section" aria-labelledby="keys-title-2">
+    <div class="keys-card">
+      <div>
+        <p class="kicker">Bring your own key, or borrow ours</p>
+        <h2 id="keys-title-2">Keys &amp; tokens</h2>
+        <p>Locally, use any provider you like with your own key. Nothing leaves your machine except the request to that provider.</p>
+      </div>
+      <div class="keys-points">
+        <div><span class="key-mark">01</span><p><strong>BYO key always works.</strong> <code>yoke login groq</code> (or <code>--provider openai</code>, <code>codex</code>, and so on) keeps the key in your own credential store.</p></div>
+        <div><span class="key-mark">02</span><p><strong>The hosted demo is Groq only.</strong> It runs one model with only read/write/edit enabled, so we can keep it small, cheap and safe.</p></div>
+        <div><span class="key-mark">03</span><p><strong>We provide limited free demo tokens.</strong> Rate-limited per visitor and per day; bring your own key if you hit the cap. No account, no sign-up, no tracking.</p></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="wrap site-foot">
+  <div class="foot-top">
+    <a class="wordmark" href="#top"><span class="mark" aria-hidden="true"></span>yoke</a>
+    <p>What the model sees is what you see.</p>
+    <a href="https://github.com/nottherealsanta/yoke">github.com/nottherealsanta/yoke ↗</a>
+  </div>
+  <div class="foot-notes">
+    <p><strong>Built in Rust.</strong> One binary, one loop, one visible timeline.</p>
+    <p><strong>Sandbox.</strong> Demo sessions run read/write/edit only, confined to a temporary directory with no memory file, deleted on disconnect.</p>
+    <p><strong>Privacy.</strong> Prompts and file contents are sent to Groq to produce a reply. We don't store conversations, accounts or API keys.</p>
+    <p><strong>Rate limits.</strong> Demo tokens are capped per visitor and per day; sessions end after a few quiet minutes.</p>
+  </div>
+</footer>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

@@ -1,9 +1,16 @@
 //! The tool registry; one file per tool.
 
 pub mod bash;
+pub mod confine;
 pub mod edit;
 pub mod read;
 pub mod write;
+
+pub use bash::Bash;
+pub use confine::{resolve, Confined};
+pub use edit::Edit;
+pub use read::Read;
+pub use write::Write;
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -73,8 +80,41 @@ impl Registry {
         Self::default()
     }
 
+    /// Add a tool. Later tools with the same name win, as before.
     pub fn register(&mut self, tool: Box<dyn Tool>) {
         self.tools.push(tool);
+    }
+
+    /// Keep only the named tools. An unknown name is an error and leaves the
+    /// registry untouched, so `--tools` fails loudly instead of silently.
+    pub fn only(&mut self, names: &[&str]) -> Result<(), String> {
+        let available = self.names();
+        for name in names {
+            if !self.tools.iter().any(|tool| tool.name() == *name) {
+                return Err(format!(
+                    "unknown tool `{name}` (available: {})",
+                    available.join(", ")
+                ));
+            }
+        }
+        self.tools.retain(|tool| names.contains(&tool.name()));
+        Ok(())
+    }
+
+    /// Wrap every tool so its `path` argument is confined to `root`.
+    ///
+    /// The wrapper is generic: tools without a `path` argument (such as
+    /// `bash`) are unchanged.
+    pub fn confine(mut self, root: impl AsRef<std::path::Path>) -> anyhow::Result<Self> {
+        let root = root.as_ref().canonicalize().map_err(|error| {
+            anyhow::anyhow!("cannot use {} as root: {error}", root.as_ref().display())
+        })?;
+        self.tools = self
+            .tools
+            .into_iter()
+            .map(|tool| Box::new(Confined::new(tool, &root).expect("root exists")) as Box<dyn Tool>)
+            .collect();
+        Ok(self)
     }
 
     pub fn get(&self, name: &str) -> Option<&dyn Tool> {
@@ -82,6 +122,13 @@ impl Registry {
             .iter()
             .find(|tool| tool.name() == name)
             .map(|tool| tool.as_ref())
+    }
+
+    pub fn names(&self) -> Vec<String> {
+        self.tools
+            .iter()
+            .map(|tool| tool.name().to_string())
+            .collect()
     }
 
     pub fn schemas(&self) -> Vec<Value> {
@@ -113,6 +160,36 @@ mod tests {
         for name in ["write", "edit", "bash"] {
             assert!(registry.get(name).unwrap().needs_approval(), "{name}");
         }
+    }
+
+    #[test]
+    fn only_keeps_the_named_tools_and_their_schemas() {
+        let mut registry = default_registry();
+        registry.only(&["read", "edit"]).unwrap();
+
+        assert_eq!(registry.names(), ["read", "edit"]);
+        assert!(registry.get("bash").is_none());
+        let schemas = registry.schemas();
+        assert_eq!(schemas.len(), 2);
+        assert_eq!(schemas[0]["name"], "read");
+        assert_eq!(schemas[1]["name"], "edit");
+    }
+
+    #[test]
+    fn only_rejects_an_unknown_name_and_changes_nothing() {
+        let mut registry = default_registry();
+        let error = registry.only(&["read", "nope"]).unwrap_err();
+        assert!(error.contains("unknown tool `nope`"), "{error}");
+        assert_eq!(registry.names().len(), 4);
+    }
+
+    #[test]
+    fn confine_wraps_file_tools_and_leaves_bash_alone() {
+        let dir = testutil::TempDir::new("registry-confine");
+        std::fs::write(dir.path().join("a.txt"), "x").unwrap();
+        let registry = default_registry().confine(dir.path()).unwrap();
+        assert_eq!(registry.names().len(), 4);
+        assert!(registry.get("bash").is_some());
     }
 }
 
